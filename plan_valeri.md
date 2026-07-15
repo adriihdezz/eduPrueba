@@ -1,117 +1,118 @@
-# Plan de Valeri — Panel de adaptaciones y lectura en voz alta
+# Plan de Valeri — API de adaptaciones educativas
 
 ## Objetivo
 
-Construir las tres pestañas que presentan transcripción, lectura fácil y puntos clave, junto con un control de síntesis de voz para el contenido activo y un estilo accesible global.
+Implementar la API que transforma una transcripción en lectura fácil y puntos clave, mediante una única llamada estructurada a `gpt-4o-mini`.
 
 ## Alcance y archivos propios
 
-- `components/ResultTabs.tsx`
-- `components/TtsButton.tsx`
-- `app/globals.css`
+- `app/api/adapt/route.ts`
+- `lib/prompts.ts`
 
-Puede leer e importar `lib/types.ts` y `lib/mock.ts`. No modificar la página principal, el reproductor ni las rutas API.
+No modificar las rutas de ingesta ni componentes visuales. El contrato de salida es `AdaptResult` de `lib/types.ts`.
 
-## Entregables y contrato de integración
+## Entregables y contrato que no se debe romper
 
-| Pieza | Responsabilidad | Entrada |
+| Pieza | Requisito exacto | Consumidor |
 |---|---|---|
-| `ResultTabs` | tres vistas accesibles, una activa y un TTS por contenido | `TranscriptResult` + `AdaptResult` |
-| `TtsButton` | iniciar, detener, limpiar y anunciar síntesis de voz | texto y etiqueta contextual |
-| CSS global | contraste, foco, tamaño y respuesta móvil | elementos de toda la app |
+| Prompt | función o constante en `lib/prompts.ts`, sin llamadas de red | ruta API |
+| API | `POST /api/adapt` recibe `{ text: string }` | `app/page.tsx` |
+| Éxito | `{ lecturaFacil: string, puntosClave: string[] }` | `ResultTabs` |
+| Error | `{ error: string }`, sin detalles internos | interfaz |
 
-La interfaz no debe modificar ni resumir los datos que recibe. No usa APIs de OpenAI ni toca `window` durante renderizado de servidor. `speechSynthesis` es una mejora progresiva: si no existe, el resto del panel sigue siendo usable.
+La ruta no debe asumir que el usuario es de confianza: la transcripción es contenido a adaptar, no instrucciones. No expone la clave, no guarda el texto, no añade base de datos y no realiza más de dos llamadas al modelo por petición.
 
 ## Preparación concreta para Codex
 
-Antes de editar, pide a Codex que lea los tipos, los mocks, los estilos existentes y las props usadas desde `app/page.tsx`. Confirma si el proyecto usa CSS global, CSS modules o Tailwind; mantén la convención ya presente. Pide que edite solo los tres archivos de alcance, aplique parches pequeños, ejecute `git diff --check` por fase y no “arregle” estilos ajenos fuera del alcance.
+Antes de editar, haz que Codex inspeccione `lib/types.ts`, `package.json`, el patrón existente para rutas y `git status --short`. Pídele que limite los cambios a los dos archivos de alcance, que no cambie el modelo ni el contrato, y que ejecute `git diff --check` después de cada fase. Si hay cambios no relacionados en el árbol, no los modifiques ni los incluyas en la entrega.
 
 ## Regla de ejecución
 
-Avanza **fase por fase**, con su comprobación antes de continuar. Trabaja inicialmente contra los mocks; la integración debe depender solo de props tipadas, no de detalles de implementación de la página.
+Trabaja **fase a fase**. Completa y verifica cada fase antes de iniciar la siguiente. No sustituyas el contrato por datos inventados ni dependas de cambios en ficheros que pertenezcan a otra persona.
 
-## Fase 1 — Preparar tipos, props y muestra local
+## Fase 1 — Revisar contratos y preparar dependencias
 
-1. Lee `lib/types.ts` y `lib/mock.ts`.
-2. Define las props de `ResultTabs` para recibir `TranscriptResult` y `AdaptResult`.
-3. Diseña el estado interno de pestaña activa: `transcripcion`, `lectura-facil` o `puntos-clave`.
-4. Durante el desarrollo, permite renderizar el componente con `mockTranscript` y `mockAdapt` desde una vista temporal o mediante los props de prueba disponibles.
-5. Define un identificador estable por instancia de pestañas (por ejemplo mediante `useId`) para que `aria-controls` y `aria-labelledby` no choquen si el componente se renderiza más de una vez.
-6. Define el contenido de voz por pestaña: transcripción = `transcript.text`; lectura fácil = `adapt.lecturaFacil`; puntos = `adapt.puntosClave` unidos con numeración verbal o pausas claras.
-7. Aclara en las props si pueden llegar datos vacíos; el contrato normal no debe permitirlo, pero el componente debe mostrar un estado seguro y no lanzar excepción si ocurre.
+1. Confirma que existe `lib/types.ts` y que exporta `AdaptResult` con `lecturaFacil: string` y `puntosClave: string[]`.
+2. Comprueba que el paquete `openai` está instalado y que `OPENAI_API_KEY` se documenta como variable de entorno.
+3. Determina el patrón de inicialización de OpenAI que usa el proyecto para no duplicar clientes innecesariamente.
+4. Confirma la versión del SDK instalada y consulta sus tipos locales para elegir la sintaxis soportada de `response_format`; no copies una sintaxis de otra versión a ciegas.
+5. Decide la política de límite de entrada: para el prototipo, rechaza texto vacío y establece un límite explícito y documentado antes de llamar al modelo, para evitar costes o errores opacos. El límite debe ser coherente con el modelo instalado.
 
-**Verificación:** TypeScript debe impedir pasar una adaptación incompleta y el componente debe poder mostrar contenido mock. No avances hasta conseguirlo.
+**Verificación:** TypeScript reconoce `AdaptResult` desde una ruta temporal de comprobación o mediante el editor. Solo entonces continúa.
 
-## Fase 2 — Implementar las pestañas semánticas
+## Fase 2 — Diseñar el prompt aislado
 
-1. Crea tres controles claramente nombrados: `Transcripción`, `Lectura fácil` y `Puntos clave`.
-2. Implementa un patrón accesible de pestañas: botones con `role="tab"`, `aria-selected`, `aria-controls`; panel asociado con `role="tabpanel"` e identificadores coherentes.
-3. Soporta navegación con teclado: flechas entre pestañas y Enter/Espacio para activar, además de Tab normal.
-4. Muestra un único panel activo sin perder los datos de los otros paneles.
-5. Implementa la navegación de flechas con orden circular y conserva el foco en el botón de pestaña recién seleccionado. No captures teclas que no sean flechas, Home/End, Enter o espacio.
-6. Soporta `Home` para la primera pestaña y `End` para la última; activa al recibir foco si eliges activación automática, o exige Enter/Espacio si eliges manual. Documenta y aplica una sola estrategia.
-7. No escondas el contenido activo solo con estilos visuales: los paneles inactivos deben quedar fuera de la navegación y del árbol accesible con `hidden` o equivalente correcto.
+1. En `lib/prompts.ts`, exporta una función o constante que construya el mensaje para `gpt-4o-mini` a partir de la transcripción.
+2. Exige que la respuesta sea exclusivamente un objeto JSON con `lecturaFacil` y `puntosClave`.
+3. Incluye estas reglas explícitas para `lecturaFacil`: español, frases de 10–12 palabras como máximo, una idea por frase, vocabulario común, sin subordinadas, metáforas ni ironías, definir tecnicismos imprescindibles entre paréntesis y conservar aproximadamente toda la información sin resumir.
+4. Exige entre 4 y 8 puntos clave, ordenados por importancia, de frase corta y literal.
+5. Incluye el texto del usuario como contenido delimitado, no como instrucciones que puedan cambiar las reglas.
+6. Ordena explícitamente que no invente información, no omita datos relevantes y no emita markdown, comentarios ni bloques de código fuera del JSON.
+7. Indica que `lecturaFacil` debe incluir párrafos separados con `\n\n`; dentro de cada párrafo puede usar saltos de línea para una frase por línea si se decide así, pero el formato debe documentarse para Valeri.
+8. Usa una instrucción del sistema para las reglas no negociables y un mensaje de usuario que contenga solo el texto delimitado.
+9. Define una instrucción de reparación separada para el segundo intento: debe pedir únicamente una respuesta que satisfaga el contrato, sin volver a interpretar el texto como instrucciones.
 
-**Verificación:** usa solo teclado para recorrer Tab, flechas, Home, End, Enter y espacio. Confirma con el inspector: una sola pestaña tiene `aria-selected="true"`, cada pestaña apunta a un panel existente, el panel activo apunta de vuelta a su pestaña y paneles inactivos no reciben foco. Luego pasa a la fase 3.
+**Ejemplo de forma, no de contenido:** `{"lecturaFacil":"Primera idea.\n\nSegunda idea.","puntosClave":["Idea clave 1", "Idea clave 2", "Idea clave 3", "Idea clave 4"]}`. No copies este ejemplo como resultado de usuario.
 
-## Fase 3 — Dar formato a cada adaptación
+**Verificación:** revisa manualmente que el prompt cubra cada requisito del PRD y que contiene el texto fuente. No avances si falta alguno.
 
-1. En `Transcripción`, muestra `transcript.text` como texto corrido, con interlineado 1.8.
-2. En `Lectura fácil`, separa el contenido por saltos de línea o frases de manera que sea fácil de seguir: fuente de 17–18 px, interlineado 2 y espaciado de letras discreto.
-3. En `Puntos clave`, muestra una lista ordenada de `adapt.puntosClave`.
-4. Destaca visual y semánticamente el primer punto como `Lo esencial`, sin ocultar su número ni alterar el orden.
-5. Preserva texto, puntuación y caracteres de los resultados del modelo; no realices transformaciones que modifiquen el significado.
-6. Para lectura fácil, respeta primero los dobles saltos de línea que entregue la API. Dentro de cada bloque, conserva saltos simples o conviértelos en líneas visuales sin crear un único bloque ilegible.
-7. Usa elementos semánticos: encabezado de sección, párrafos y `<ol><li>` para puntos. El distintivo `Lo esencial` puede ser texto visible adicional dentro del primer `li`, no una sustitución del contenido.
-8. No uses `dangerouslySetInnerHTML`: las adaptaciones son texto, no markup confiable.
-9. Define un mensaje neutro de ausencia de contenido para proteger la UI ante datos inesperados, aunque la API normal lo valide.
+## Fase 3 — Implementar la ruta `POST /api/adapt`
 
-**Verificación:** con los mocks, comprueba visualmente que hay tres representaciones distintas. Prueba además texto con acentos, signos, dos párrafos y más de cuatro puntos; confirma que no se interpreta como HTML, que el primer punto mantiene el número 1 y que la lectura fácil conserva sus divisiones. No continúes hasta que esto sea cierto.
+1. Crea el manejador `POST` en `app/api/adapt/route.ts`.
+2. Lee y valida el JSON: debe tener `text` de tipo string y no vacío tras eliminar espacios.
+3. Devuelve 400 con `{ error: string }` si el cuerpo no es JSON válido o la transcripción no es válida.
+4. Llama a OpenAI con modelo `gpt-4o-mini` y modo de respuesta JSON (`json_object` o el modo estructurado compatible con la versión instalada).
+5. Extrae el contenido de la respuesta y conviértelo a JSON.
+6. Devuelve exclusivamente el objeto compatible con `AdaptResult` y estado 200.
+7. Devuelve un error 5xx claro y seguro para fallos del proveedor.
+8. Trata `request.json()` dentro de un `try/catch` para distinguir JSON inválido de una caída del proveedor.
+9. Recorta el texto únicamente para validar vacío; conserva el texto original para que la adaptación no pierda intencionadamente espacios o saltos de línea significativos.
+10. Fija explícitamente `Content-Type: application/json` al hacer llamadas manuales de prueba y confirma que la ruta no acepta métodos no implementados.
+11. Tras obtener la respuesta, comprueba que existe contenido antes de ejecutar `JSON.parse`; no presupongas que todo `200` trae JSON útil.
 
-## Fase 4 — Implementar `TtsButton`
+**Matriz mínima de respuestas:**
 
-1. Crea un componente que reciba el texto que debe leer y un identificador opcional del panel activo.
-2. Comprueba que `window.speechSynthesis` y `SpeechSynthesisUtterance` existan antes de utilizarlos, para evitar fallos en SSR o navegadores no compatibles.
-3. Al reproducir, crea `new SpeechSynthesisUtterance(text)` con `lang = "es-ES"` y `rate = 0.9`.
-4. El botón debe alternar entre reproducir y detener; al detener, usa `speechSynthesis.cancel()`.
-5. Actualiza el estado del botón al terminar, cancelar o producirse un error. Cancela la locución al cambiar de pestaña y al desmontar el componente.
-6. Usa etiquetas accesibles que indiquen la acción, por ejemplo `Escuchar lectura fácil` o `Detener lectura fácil`.
-7. Antes de empezar una nueva locución, llama a `cancel()` para detener cualquier locución anterior de otra pestaña o instancia. No uses `pause()` como si fuera una cancelación definitiva.
-8. Usa una referencia para saber qué `SpeechSynthesisUtterance` pertenece al botón actual; ignora callbacks tardíos de una locución ya cancelada para que no cambien el estado de un botón nuevo.
-9. No marques “reproduciendo” hasta que se haya creado correctamente la utterance; maneja `onend` y `onerror` devolviendo el botón a estado inactivo.
-10. Si no existe soporte, muestra el botón deshabilitado o un mensaje corto `La lectura en voz alta no está disponible en este navegador`; no lances error ni escondas las pestañas.
-11. Cancela la voz al recibir nuevo texto, al cambiar la pestaña activa y en la limpieza de `useEffect` al desmontar.
+| Caso | Estado | Cuerpo esperado |
+|---|---:|---|
+| JSON malformado | 400 | `{ error: "El cuerpo debe ser JSON válido" }` |
+| `text` ausente, no string o vacío | 400 | `{ error: "Debes enviar una transcripción válida" }` |
+| Texto por encima del límite acordado | 400/413 | `{ error: "La transcripción es demasiado larga…" }` |
+| Modelo o clave no disponible | 5xx | `{ error: "No se pudo generar la adaptación…" }` |
+| Correcto | 200 | `AdaptResult` |
 
-**Estados que debe tener el botón:**
+**Verificación:** una petición con texto breve debe llegar al proveedor y devolver los dos campos esperados. No continúes hasta verificar el código de estado y el tipo de cada campo.
 
-| Estado | Etiqueta / acción | Resultado |
-|---|---|---|
-| disponible | `Escuchar …` | inicia una única locución |
-| hablando | `Detener …` | cancela y vuelve a disponible |
-| no soportado | aviso o botón deshabilitado | no intenta acceder a la API |
-| error | `Volver a intentar escuchar …` | permite nuevo intento |
+## Fase 4 — Validación del modelo y reintento
 
-**Verificación:** en navegador, inicia la voz, detenla con el mismo botón, inicia una segunda antes de que termine, cambia de pestaña mientras habla, desmonta el panel y vuelve a montarlo. Confirma que nunca hay dos voces a la vez, que el botón siempre vuelve a disponible y que el render inicial no accede a `window`. Si es posible, prueba un navegador sin soporte o simula la ausencia de la API.
+1. Valida después del parseo que `lecturaFacil` sea un string no vacío.
+2. Valida que `puntosClave` sea un array de strings no vacíos, con entre 4 y 8 elementos.
+3. Si el JSON es inválido o no cumple el contrato, repite la llamada exactamente una vez con una instrucción de corrección clara.
+4. Si el segundo intento falla, devuelve un error 502/500 seguro; no devuelvas datos parcialmente válidos.
+5. Protege la ruta frente a respuestas sin contenido y errores de parseo.
+6. Normaliza la salida para validación: `lecturaFacil.trim()` no puede quedar vacía; cada punto debe ser string y no vacío después de `trim()`; no aceptes claves alternativas ni arrays de objetos.
+7. Conserva la causa técnica solo en logs de servidor si el proyecto los usa; el cliente recibe un mensaje estable.
+8. Si implementas la corrección dentro de una misma request, marca claramente el contador de intento para que sea imposible lanzar un tercer intento por accidente.
+9. No reintentes fallos de autenticación, entrada inválida o falta de clave: el reintento está reservado para salida JSON inválida o que no cumple `AdaptResult`.
 
-## Fase 5 — Estilo global y validación final
+**Verificación:** prueba el validador de forma controlada con: JSON incompleto, `lecturaFacil` vacía, tres puntos, nueve puntos, un punto no-string y un objeto correcto. Confirma que el correcto pasa, todos los demás activan un único reintento, y que no hay nunca un tercero ni se filtran mensajes de SDK.
 
-1. En `app/globals.css`, aplica una base limpia de alto contraste, tamaños de objetivo táctil cómodos y foco visible.
-2. Evita librerías de UI y evita usar únicamente color para comunicar estado.
-3. Mantén contraste suficiente entre texto, fondo, pestaña activa e inactiva; respeta `prefers-reduced-motion` si introduces transiciones.
-4. Comprueba la visualización en ancho móvil y escritorio sin que se corten pestañas o botones.
-5. Ejecuta `npm run lint` y `npm run build`, si existen.
-6. Comprueba contraste de texto normal, botones, foco, pestaña activa, error y contenido destacado con una herramienta de contraste o revisión equivalente. Los mensajes no pueden depender solo de color.
-7. Asegura un objetivo táctil aproximado de 44×44 px para los controles principales y espacio suficiente entre ellos.
-8. Asegura que el CSS no impide el zoom del navegador, no fija alturas que corten transcripciones largas y no elimina el contorno de foco sin reemplazo.
+## Fase 5 — Prueba manual y entrega
 
-## Handoff de Valeri a Adolfo
+1. Arranca el proyecto y ejecuta el `curl` del PRD con una transcripción corta en español.
+2. Revisa que la lectura fácil conserve la información y que los puntos estén en español y sean entre 4 y 8.
+3. Ejecuta `npm run lint` y `npm run build`, si existen.
+4. Informa a la persona de interfaz de la forma exacta de la respuesta y de los mensajes de error.
+5. Prueba además JSON inválido, texto vacío, texto excesivamente largo y clave ausente (sin revelar el secreto). Anota estado y cuerpo de cada respuesta.
+6. Revisa una respuesta real para comprobar: español, entre 4 y 8 puntos, lectura fácil no resumida de manera extrema y ningún texto fuera de los dos campos del contrato.
 
-Antes de declarar la parte terminada, entrega:
+## Handoff de Adrián a Adolfo y Valeri
 
-- La firma final de props de `ResultTabs` y ejemplo de uso con los mocks.
-- La convención usada para separar `lecturaFacil` y construir el texto de TTS de puntos clave.
-- Las condiciones en que TTS se deshabilita o cancela.
-- Resultado de pruebas de teclado, responsive, contraste y navegador.
-- Resultado de lint/build y cualquier dependencia de CSS que Adolfo deba respetar al componer la página.
+Entrega por escrito:
 
-**Criterio de terminado:** el panel recibe resultados reales o mocks, muestra cada adaptación de forma accesible y clara, y el contenido de cada pestaña puede escucharse en español mediante un control seguro y cancelable.
+- La forma exacta de la petición y respuesta, con ejemplo anonimizado.
+- El límite de texto acordado y el mensaje de error asociado.
+- La convención de saltos de línea de `lecturaFacil`.
+- El listado de estados HTTP que maneja la UI.
+- Resultado de lint/build y cualquier comportamiento del modelo que exija una mejora posterior del prompt.
+
+**Criterio de terminado:** `POST /api/adapt` acepta una transcripción válida, devuelve una adaptación válida de forma fiable y rechaza entradas o salidas malformadas de manera controlada.
