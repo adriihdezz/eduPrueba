@@ -17,6 +17,23 @@ type VideoInputProps = {
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const acceptedExtensions = ["mp4", "mp3", "m4a", "wav"];
+const sampleVideos = [
+  {
+    title: "La fotosíntesis",
+    description: "Cómo se alimentan las plantas",
+    url: "https://youtu.be/ru6rZNQg3eM"
+  },
+  {
+    title: "El ciclo del agua",
+    description: "El viaje del agua en la naturaleza",
+    url: "https://youtu.be/QDCohXW6blg"
+  },
+  {
+    title: "Estados de la materia",
+    description: "Sólido, líquido y gaseoso",
+    url: "https://youtu.be/huVPSc9X61E"
+  }
+];
 
 const formatFileSize = (bytes: number): string =>
   new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 }).format(bytes / 1024 / 1024) + " MB";
@@ -148,6 +165,25 @@ export default function VideoInput({
       <button type="button" onClick={onDemo} disabled={isProcessing}>
         Usar demo
       </button>
+
+      <section className="sample-videos" aria-labelledby="sample-videos-title">
+        <h3 id="sample-videos-title">Vídeos de prueba</h3>
+        <p>Ejemplos educativos con subtítulos en español comprobados.</p>
+        <div className="sample-video-list">
+          {sampleVideos.map((video) => (
+            <button
+              key={video.url}
+              type="button"
+              className="sample-video-button"
+              onClick={() => onYoutubeSubmit(video.url)}
+              disabled={isProcessing}
+            >
+              <span>{video.title}</span>
+              <small>{video.description}</small>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <p role="status" aria-live="polite" aria-atomic="true">
         {status}

@@ -97,11 +97,18 @@ video, iframe { aspect-ratio: 16 / 9; border: 0; }
 }
 .tts-button { margin-top: 0.75rem; }
 .tts-unavailable { color: #4c5568; font-weight: 700; }
+.sample-videos { margin-top: 1.5rem; border-top: 1px solid #c7d0e0; padding-top: 1.25rem; }
+.sample-videos h3 { margin-bottom: 0.25rem; }
+.sample-video-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.sample-video-button { min-height: 84px; text-align: left; }
+.sample-video-button span, .sample-video-button small { display: block; }
+.sample-video-button small { margin-top: 0.3rem; font-size: 0.85rem; line-height: 1.35; }
 
 @media (max-width: 640px) {
   main { width: min(100% - 1rem, 1100px); padding-top: 1rem; }
   .tab-list { display: grid; grid-template-columns: 1fr; }
   .tab-button { border-radius: 0.5rem; text-align: left; }
+  .sample-video-list { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
