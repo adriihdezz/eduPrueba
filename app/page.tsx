@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ResultTabs from "../components/ResultTabs";
 import VideoInput, { type ProcessingPhase } from "../components/VideoInput";
 import VideoPlayer from "../components/VideoPlayer";
 import { mockAdapt, mockTranscript } from "../lib/mock";
@@ -55,15 +56,6 @@ const errorMessage = (payload: unknown, fallback: string): string =>
   isRecord(payload) && typeof payload.error === "string" && payload.error.trim()
     ? payload.error
     : fallback;
-
-/**
- * Integration contract for components/ResultTabs.tsx, delivered by Luisa's workstream.
- * Keeping it here avoids duplicating that component while its implementation is pending.
- */
-export type ResultTabsProps = {
-  transcript: TranscriptResult;
-  adapt: AdaptResult;
-};
 
 export default function HomePage() {
   const [phase, setPhase] = useState<ProcessingPhase>("idle");
@@ -249,10 +241,7 @@ export default function HomePage() {
             localMediaUrl={result.transcript.source === "upload" ? localMediaUrl ?? undefined : undefined}
             localFile={result.transcript.source === "upload" ? selectedFile : undefined}
           />
-          <section aria-live="polite">
-            <h2>Adaptaciones listas</h2>
-            <p>El panel de transcripción, lectura fácil y puntos clave se conectará aquí mediante `ResultTabs`.</p>
-          </section>
+          <ResultTabs transcript={result.transcript} adapt={result.adapt} />
         </section>
       )}
     </main>
